@@ -10,15 +10,15 @@ async function testGeminiApi() {
   console.log(`Project: ${vertexConfig.project || '(missing)'}`)
   console.log(`Location: ${vertexConfig.location}`)
   console.log(`Global location: ${vertexConfig.globalLocation}`)
-  console.log(`Credentials: ${vertexConfig.credentialsPath || '(missing)'}`)
+  console.log(`Credentials: ${vertexConfig.credentialsSource || 'missing'}${vertexConfig.credentialsPath ? ` (${vertexConfig.credentialsPath})` : ''}`)
   console.log(`Chat chain: ${getModelChain().join(' -> ')}`)
   console.log('Task profiles:')
   for (const [task, profile] of Object.entries(profiles)) {
     console.log(`  ${task}: ${profile.chain.join(' -> ')}`)
   }
 
-  if (!vertexConfig.credentialsPath) {
-    console.error('\nFAIL: Vertex AI credentials JSON not found in backend/')
+  if (!vertexConfig.hasCredentials) {
+    console.error('\nFAIL: Vertex AI credentials not found (set GOOGLE_APPLICATION_CREDENTIALS_JSON or GOOGLE_APPLICATION_CREDENTIALS)')
     process.exit(1)
   }
 

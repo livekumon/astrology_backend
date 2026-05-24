@@ -1,5 +1,6 @@
 const { generateForTask, GeminiError } = require('./geminiService')
 const { getChatThinkingBudget } = require('./modelRouting')
+const { recordTokenUsage } = require('./tokenUsageService')
 const {
   getLanguageInstruction,
   getLanguageName,
@@ -234,7 +235,14 @@ function buildFallbackChatAnswer(question, chartContext = {}, language = 'en') {
   }
 }
 
-async function getChatAnswer(question, chartContext = {}, language = 'en', history = [], compressedContext = '') {
+async function getChatAnswer(
+  question,
+  chartContext = {},
+  language = 'en',
+  history = [],
+  compressedContext = '',
+  tracking = {},
+) {
   const resolvedLanguage = language || chartContext.language || 'en'
   const languageName = getLanguageName(resolvedLanguage)
   const traditionId = chartContext.system || 'Vedic / Jyotish'
@@ -286,6 +294,15 @@ async function getChatAnswer(question, chartContext = {}, language = 'en', histo
       systemInstruction: buildAstrologerSystem(resolvedLanguage, traditionId),
       jsonResponse: true,
       thinkingBudget: getChatThinkingBudget(safeQuestion),
+    })
+
+    await recordTokenUsage({
+      userId: tracking.userId,
+      task: 'chat',
+      model: llmResult.model,
+      usage: llmResult.usage,
+      conversationId: tracking.conversationId,
+      source: 'chat',
     })
 
     const { summary, clearExplanation, detailedExplanation } = parseChatResponse(llmResult.text)

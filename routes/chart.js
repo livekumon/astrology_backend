@@ -1,6 +1,7 @@
 const express = require('express')
 const { generateChartData } = require('../services/chartService')
 const { GeminiError } = require('../services/geminiService')
+const { optionalAuth } = require('../middleware/auth')
 
 const router = express.Router()
 
@@ -11,7 +12,7 @@ function normalizeGender(value) {
   return undefined
 }
 
-router.post('/', async (req, res) => {
+router.post('/', optionalAuth, async (req, res) => {
   const { system, dateOfBirth, timeOfBirth, placeOfBirth, language, gender } = req.body
 
   if (!system || !dateOfBirth || !timeOfBirth || !placeOfBirth) {
@@ -28,6 +29,7 @@ router.post('/', async (req, res) => {
       placeOfBirth,
       gender: normalizeGender(gender),
       language: language || 'en',
+      userId: req.user?._id,
     })
     res.json(chart)
   } catch (error) {

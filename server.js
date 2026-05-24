@@ -7,14 +7,16 @@ const chartRoutes = require('./routes/chart')
 const chatRoutes = require('./routes/chat')
 const authRoutes = require('./routes/auth')
 const conversationRoutes = require('./routes/conversations')
+const adminRoutes = require('./routes/admin')
 
 const app = express()
 const PORT = process.env.PORT || 3001
+const ADMIN_URL = process.env.ADMIN_URL || 'http://localhost:5175'
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
 
 app.use(
   cors({
-    origin: [FRONTEND_URL, 'http://localhost:5173'],
+    origin: [FRONTEND_URL, ADMIN_URL, 'http://localhost:5173', 'http://localhost:5175'],
     credentials: true,
   }),
 )
@@ -25,6 +27,7 @@ app.get('/api/health', (_req, res) => {
 })
 
 app.use('/api/auth', authRoutes)
+app.use('/api/admin', adminRoutes)
 app.use('/api/conversations', conversationRoutes)
 app.use('/api/chart', chartRoutes)
 app.use('/api/chat', chatRoutes)

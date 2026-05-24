@@ -74,6 +74,31 @@ function uniqueModels(models) {
   return [...new Set(models.filter(Boolean))]
 }
 
+function parseCredentialsJson(raw) {
+  let value = String(raw).trim()
+  if (!value) return null
+
+  if (
+    (value.startsWith("'") && value.endsWith("'"))
+    || (value.startsWith('"') && value.endsWith('"'))
+  ) {
+    value = value.slice(1, -1)
+  }
+
+  try {
+    const parsed = JSON.parse(value)
+    if (parsed?.type !== 'service_account' || !parsed.private_key) {
+      throw new Error('expected a Google service account JSON object')
+    }
+    return parsed
+  } catch (error) {
+    throw new GeminiError(
+      `Invalid GOOGLE_APPLICATION_CREDENTIALS_JSON: ${error.message}`,
+      500,
+    )
+  }
+}
+
 function resolveCredentialsPath() {
   const configured = process.env.GOOGLE_APPLICATION_CREDENTIALS
   if (configured) {
@@ -101,20 +126,43 @@ function resolveCredentialsPath() {
   return null
 }
 
-function readServiceAccountProjectId(credentialsPath) {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'))
-    return parsed.project_id || null
-  } catch {
-    return null
+function resolveServiceAccountCredentials() {
+  const jsonEnv = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON
+  if (jsonEnv) {
+    const credentials = parseCredentialsJson(jsonEnv)
+    return {
+      credentials,
+      projectId: credentials.project_id || null,
+      source: 'json',
+      path: null,
+    }
   }
+
+  const credentialsPath = resolveCredentialsPath()
+  if (credentialsPath && fs.existsSync(credentialsPath)) {
+    try {
+      const credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'))
+      if (credentials?.type === 'service_account' && credentials.private_key) {
+        return {
+          credentials,
+          projectId: credentials.project_id || null,
+          source: 'file',
+          path: credentialsPath,
+        }
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  return null
 }
 
-function getProjectId() {
-  const credentialsPath = resolveCredentialsPath()
+function getProjectId(resolved = resolveServiceAccountCredentials()) {
   return (
     process.env.GOOGLE_CLOUD_PROJECT ||
-    (credentialsPath ? readServiceAccountProjectId(credentialsPath) : null)
+    resolved?.projectId ||
+    null
   )
 }
 
@@ -127,10 +175,12 @@ function locationForModel(model) {
 }
 
 function getConfig() {
-  const credentialsPath = resolveCredentialsPath()
+  const resolved = resolveServiceAccountCredentials()
   return {
-    credentialsPath,
-    project: getProjectId(),
+    credentialsPath: resolved?.path || null,
+    credentialsSource: resolved?.source || null,
+    hasCredentials: Boolean(resolved),
+    project: getProjectId(resolved),
     location: DEFAULT_LOCATION,
     globalLocation: GLOBAL_LOCATION,
     model: TASK_PROFILES.chat.primary,
@@ -151,12 +201,12 @@ function getVertexClient(location = DEFAULT_LOCATION) {
     return vertexClients.get(location)
   }
 
-  const credentialsPath = resolveCredentialsPath()
-  const project = getProjectId()
+  const resolved = resolveServiceAccountCredentials()
+  const project = getProjectId(resolved)
 
-  if (!credentialsPath || !fs.existsSync(credentialsPath)) {
+  if (!resolved) {
     throw new GeminiError(
-      'Vertex AI credentials JSON not found. Set GOOGLE_APPLICATION_CREDENTIALS in backend/.env',
+      'Vertex AI credentials not found. Set GOOGLE_APPLICATION_CREDENTIALS_JSON or GOOGLE_APPLICATION_CREDENTIALS',
       500,
     )
   }
@@ -173,7 +223,7 @@ function getVertexClient(location = DEFAULT_LOCATION) {
     project,
     location,
     googleAuthOptions: {
-      keyFilename: credentialsPath,
+      credentials: resolved.credentials,
     },
   })
 
@@ -261,7 +311,10 @@ async function generateTextWithModel(model, prompt, options = {}) {
       throw new GeminiError('Gemini returned no text', 502)
     }
 
-    return text
+    const { extractUsageFromMetadata } = require('./tokenUsageService')
+    const usage = extractUsageFromMetadata(response.usageMetadata)
+
+    return { text, usage }
   } catch (error) {
     throw toGeminiError(error, `Could not reach Vertex AI (${location}): ${error.message}`)
   }
@@ -281,12 +334,13 @@ async function generateForTask(task, prompt, options = {}) {
 
   for (const model of models) {
     try {
-      const text = await generateTextWithModel(model, prompt, mergedOptions)
+      const result = await generateTextWithModel(model, prompt, mergedOptions)
       return {
-        text,
+        text: result.text,
         model,
         task,
         location: locationForModel(model),
+        usage: result.usage,
       }
     } catch (error) {
       lastError = error

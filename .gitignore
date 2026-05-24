@@ -2,4 +2,5 @@
 *-*.json
 !package.json
 !package-lock.json
+.google-credentials-string.txt
 node_modules/

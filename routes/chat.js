@@ -1,11 +1,12 @@
 const express = require('express')
 const { getChatAnswer } = require('../services/chatService')
 const { GeminiError } = require('../services/geminiService')
+const { optionalAuth } = require('../middleware/auth')
 const { sanitizeUserText, MAX_USER_QUESTION_LENGTH } = require('../services/promptGuardService')
 
 const router = express.Router()
 
-router.post('/', async (req, res) => {
+router.post('/', optionalAuth, async (req, res) => {
   const { question, chartContext, language, history, compressedContext } = req.body
 
   const safeQuestion = sanitizeUserText(question, MAX_USER_QUESTION_LENGTH)
@@ -20,6 +21,10 @@ router.post('/', async (req, res) => {
       language ?? chartContext?.language ?? 'en',
       Array.isArray(history) ? history : [],
       typeof compressedContext === 'string' ? compressedContext : '',
+      {
+        userId: req.user?._id,
+        conversationId: req.body.conversationId,
+      },
     )
     res.json(result)
   } catch (error) {

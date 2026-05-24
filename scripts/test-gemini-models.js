@@ -44,7 +44,7 @@ async function testSingleModel(model) {
       model,
       ok: true,
       ms: Date.now() - started,
-      response: text.slice(0, 80),
+      response: (text.text || text).slice(0, 80),
     }
   } catch (error) {
     const classified = classifyError(error)
@@ -100,14 +100,14 @@ async function main() {
   console.log(`Project: ${vertexConfig.project || '(missing)'}`)
   console.log(`Location: ${vertexConfig.location}`)
   console.log(`Global: ${vertexConfig.globalLocation}`)
-  console.log(`Credentials: ${vertexConfig.credentialsPath || '(missing)'}`)
+  console.log(`Credentials: ${vertexConfig.credentialsSource || 'missing'}${vertexConfig.credentialsPath ? ` (${vertexConfig.credentialsPath})` : ''}`)
   for (const [task, profile] of Object.entries(profiles)) {
     console.log(`  ${task.padEnd(8)} ${profile.chain.join(' -> ')}`)
   }
   console.log('')
 
-  if (!vertexConfig.credentialsPath) {
-    console.error('FAIL: Vertex AI service account JSON not found in backend/')
+  if (!vertexConfig.hasCredentials) {
+    console.error('FAIL: Vertex AI credentials not found (set GOOGLE_APPLICATION_CREDENTIALS_JSON or GOOGLE_APPLICATION_CREDENTIALS)')
     process.exit(1)
   }
 

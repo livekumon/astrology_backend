@@ -32,6 +32,10 @@ async function ensureIndexes(database) {
 
   const convs = database.collection('conversations')
   await convs.createIndex({ userId: 1, updatedAt: -1 })
+
+  const usage = database.collection('token_usage')
+  await usage.createIndex({ userId: 1, createdAt: -1 })
+  await usage.createIndex({ createdAt: -1 })
 }
 
 function getDB() {

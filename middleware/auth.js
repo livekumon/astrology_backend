@@ -34,13 +34,18 @@ async function requireAuth(req, res, next) {
   }
 }
 
-function optionalAuth(req, _res, next) {
+async function optionalAuth(req, _res, next) {
   const header = req.headers.authorization
   if (!header || !header.startsWith('Bearer ')) return next()
   const token = header.slice(7)
   try {
     const payload = jwt.verify(token, JWT_SECRET)
-    req.userId = payload.sub
+    if (payload.role === 'admin') return next()
+    const user = await col('users').findOne(
+      { _id: new ObjectId(payload.sub) },
+      { projection: { password: 0 } },
+    )
+    if (user) req.user = user
   } catch {
     // ignore — optional
   }

@@ -1,4 +1,5 @@
 const { generateForTask } = require('./geminiService')
+const { recordTokenUsage } = require('./tokenUsageService')
 const { getLanguageInstruction } = require('./languageService')
 const { buildWelcomePromptBlock } = require('./promptGuardService')
 const { resolveBirthLocation } = require('./locationService')
@@ -51,6 +52,7 @@ async function buildWelcomeMessage({
   dashas,
   birthLocation,
   chartCalculation,
+  userId,
 }) {
   const { formatChartContext } = require('./chartContextFormatter')
 
@@ -76,6 +78,13 @@ async function buildWelcomeMessage({
     const result = await generateForTask('welcome', prompt, {
       systemInstruction: buildWelcomeSystem(language, system),
     })
+    await recordTokenUsage({
+      userId,
+      task: 'welcome',
+      model: result.model,
+      usage: result.usage,
+      source: 'welcome',
+    })
     return result.text
   } catch {
     return buildFallbackWelcomeMessage(system, ascSign, moonSign, language)
@@ -89,6 +98,7 @@ async function generateChartData({
   placeOfBirth,
   gender,
   language = 'en',
+  userId,
 }) {
   const birthLocation = await resolveBirthLocation({
     placeOfBirth,
@@ -121,6 +131,7 @@ async function generateChartData({
     placeOfBirth,
     gender,
     language,
+    userId,
     planets,
     dashas,
     birthLocation,

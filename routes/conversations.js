@@ -2,6 +2,7 @@ const express = require('express')
 const { col, ObjectId } = require('../db/connection')
 const { requireAuth } = require('../middleware/auth')
 const { generateForTask } = require('../services/geminiService')
+const { recordTokenUsage } = require('../services/tokenUsageService')
 const { buildSummarizerSystemInstruction, sanitizeUserText } = require('../services/promptGuardService')
 
 const router = express.Router()
@@ -144,7 +145,13 @@ router.post('/:id/messages', async (req, res) => {
   // Re-compress context every 5 exchanges (10 messages) or on first message
   let compressedContext = conv.compressedContext || ''
   if (newCount === 1 || newCount % 5 === 0) {
-    compressedContext = await buildCompressedContext(updatedMessages, conv.chartData, conv.language)
+    compressedContext = await buildCompressedContext(
+      updatedMessages,
+      conv.chartData,
+      conv.language,
+      req.user._id,
+      conv._id,
+    )
   }
 
   await col('conversations').updateOne(
@@ -162,7 +169,7 @@ router.post('/:id/messages', async (req, res) => {
   res.json({ ok: true, compressedContext })
 })
 
-async function buildCompressedContext(messages, chartData, language) {
+async function buildCompressedContext(messages, chartData, language, userId, conversationId) {
   if (!messages || messages.length === 0) return ''
 
   const recentPairs = messages.slice(-10) // last 5 exchanges
@@ -183,6 +190,14 @@ async function buildCompressedContext(messages, chartData, language) {
   try {
     const result = await generateForTask('summary', prompt, {
       systemInstruction: buildSummarizerSystemInstruction(traditionId),
+    })
+    await recordTokenUsage({
+      userId,
+      task: 'summary',
+      model: result.model,
+      usage: result.usage,
+      conversationId,
+      source: 'conversation_summary',
     })
     return result.text.trim().slice(0, 600)
   } catch {

@@ -23,7 +23,7 @@ async function runVertexAiTest() {
   console.log(`  Project:     ${vertexConfig.project || '(missing)'}`)
   console.log(`  Location:    ${vertexConfig.location}`)
   console.log(`  Global:      ${vertexConfig.globalLocation}`)
-  console.log(`  Credentials: ${vertexConfig.credentialsPath || '(missing)'}`)
+  console.log(`  Credentials: ${vertexConfig.credentialsSource || 'missing'}${vertexConfig.credentialsPath ? ` (${vertexConfig.credentialsPath})` : ''}`)
   console.log(`  Chat chain:  ${getModelChain().join(' -> ')}`)
   const profiles = getTaskProfiles()
   for (const [task, profile] of Object.entries(profiles)) {
@@ -33,14 +33,14 @@ async function runVertexAiTest() {
   console.log('\nChecks')
   console.log('-'.repeat(50))
 
-  if (!vertexConfig.credentialsPath) {
-    logStep('Service account JSON found', FAIL)
+  if (!vertexConfig.hasCredentials) {
+    logStep('Vertex AI credentials configured', FAIL)
     failed = true
-  } else if (!fs.existsSync(vertexConfig.credentialsPath)) {
+  } else if (vertexConfig.credentialsSource === 'file' && !fs.existsSync(vertexConfig.credentialsPath)) {
     logStep('Service account JSON exists on disk', FAIL, vertexConfig.credentialsPath)
     failed = true
   } else {
-    logStep('Service account JSON exists on disk', PASS)
+    logStep('Vertex AI credentials configured', PASS, vertexConfig.credentialsSource)
   }
 
   if (!vertexConfig.project) {
