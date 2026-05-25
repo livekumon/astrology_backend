@@ -10,6 +10,7 @@ const {
   listUsersWithStats,
   getUserConversations,
   getUserTokenBreakdown,
+  getConversationTokenUsage,
 } = require('../services/tokenUsageService')
 
 const router = express.Router()
@@ -50,17 +51,30 @@ router.get('/users/:id', requireAdmin, async (req, res) => {
   const user = await col('users').findOne({ _id: oid }, { projection: { password: 0 } })
   if (!user) return res.status(404).json({ message: 'User not found' })
 
-  const [conversations, tokenBreakdown] = await Promise.all([
+  const [conversations, tokenBreakdown, conversationTokenUsage] = await Promise.all([
     getUserConversations(user._id),
     getUserTokenBreakdown(user._id),
+    getConversationTokenUsage(user._id),
   ])
 
   const usersWithStats = await listUsersWithStats()
   const summary = usersWithStats.find((u) => String(u._id) === String(user._id))
 
+  const conversationsWithUsage = conversations.map((conv) => ({
+    ...conv,
+    tokenUsage: conversationTokenUsage[String(conv._id)] || {
+      totalTokens: 0,
+      promptTokens: 0,
+      outputTokens: 0,
+      thinkingTokens: 0,
+      requestCount: 0,
+      cost: { costInr: 0, costUsd: 0, currency: 'INR' },
+    },
+  }))
+
   res.json({
     user: summary || user,
-    conversations,
+    conversations: conversationsWithUsage,
     tokenBreakdown,
   })
 })

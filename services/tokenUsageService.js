@@ -1,4 +1,5 @@
 const { col, ObjectId } = require('../db/connection')
+const { computeUsageCost, sumUsageCosts, formatCostSummary } = require('./tokenPricingService')
 
 function normalizeUsage(raw) {
   if (!raw) return null
@@ -32,6 +33,13 @@ async function recordTokenUsage({
   const normalized = normalizeUsage(usage)
   if (!normalized) return
 
+  const cost = computeUsageCost({
+    model,
+    promptTokens: normalized.promptTokens,
+    outputTokens: normalized.outputTokens,
+    thinkingTokens: normalized.thinkingTokens,
+  })
+
   const doc = {
     userId: userId ? new ObjectId(String(userId)) : null,
     task: task || 'unknown',
@@ -40,6 +48,8 @@ async function recordTokenUsage({
     outputTokens: normalized.outputTokens,
     thinkingTokens: normalized.thinkingTokens,
     totalTokens: normalized.totalTokens,
+    costUsd: cost.costUsd,
+    costInr: cost.costInr,
     conversationId: conversationId ? new ObjectId(String(conversationId)) : null,
     source: source || task || 'unknown',
     createdAt: new Date(),
@@ -61,6 +71,66 @@ async function recordTokenUsage({
         $set: { 'tokenUsage.lastUsedAt': new Date() },
       },
     )
+  }
+}
+
+async function aggregateTokenUsageByField(match, groupField) {
+  const rows = await col('token_usage')
+    .aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: { [groupField]: `$${groupField}`, model: '$model' },
+          promptTokens: { $sum: '$promptTokens' },
+          outputTokens: { $sum: '$outputTokens' },
+          thinkingTokens: { $sum: '$thinkingTokens' },
+          totalTokens: { $sum: '$totalTokens' },
+          requestCount: { $sum: 1 },
+        },
+      },
+    ])
+    .toArray()
+
+  const grouped = new Map()
+
+  for (const row of rows) {
+    const key = row._id?.[groupField]
+    if (key == null) continue
+    const id = String(key)
+    const cost = computeUsageCost({
+      model: row._id.model,
+      promptTokens: row.promptTokens,
+      outputTokens: row.outputTokens,
+      thinkingTokens: row.thinkingTokens,
+    })
+
+    const current = grouped.get(id) || {
+      totalTokens: 0,
+      promptTokens: 0,
+      outputTokens: 0,
+      thinkingTokens: 0,
+      requestCount: 0,
+      costUsd: 0,
+      costInr: 0,
+    }
+
+    current.totalTokens += row.totalTokens
+    current.promptTokens += row.promptTokens
+    current.outputTokens += row.outputTokens
+    current.thinkingTokens += row.thinkingTokens
+    current.requestCount += row.requestCount
+    current.costUsd += cost.costUsd
+    current.costInr += cost.costInr
+    grouped.set(id, current)
+  }
+
+  return grouped
+}
+
+function attachCostToTokenUsage(tokenUsage = {}) {
+  return {
+    ...tokenUsage,
+    cost: formatCostSummary(tokenUsage.costInr || 0, tokenUsage.costUsd || 0),
   }
 }
 
@@ -90,16 +160,34 @@ async function getGlobalStats() {
     requestCount: 0,
   }
 
+  const costRows = await col('token_usage')
+    .aggregate([
+      {
+        $group: {
+          _id: '$model',
+          promptTokens: { $sum: '$promptTokens' },
+          outputTokens: { $sum: '$outputTokens' },
+          thinkingTokens: { $sum: '$thinkingTokens' },
+        },
+      },
+    ])
+    .toArray()
+  const totalCost = sumUsageCosts(
+    costRows.map((row) => ({ model: row._id, ...row })),
+  )
+
   return {
     userCount,
     conversationCount,
-    tokenUsage: {
+    tokenUsage: attachCostToTokenUsage({
       totalTokens: tokens.totalTokens,
       promptTokens: tokens.promptTokens,
       outputTokens: tokens.outputTokens,
       thinkingTokens: tokens.thinkingTokens,
       requestCount: tokens.requestCount,
-    },
+      costUsd: totalCost.costUsd,
+      costInr: totalCost.costInr,
+    }),
   }
 }
 
@@ -111,37 +199,22 @@ async function listUsersWithStats() {
 
   const userIds = users.map((u) => u._id)
 
-  const [convCounts, tokenByUser] = await Promise.all([
+  const [convCounts, tokenByUserMap] = await Promise.all([
     col('conversations')
       .aggregate([
         { $match: { userId: { $in: userIds } } },
         { $group: { _id: '$userId', count: { $sum: 1 } } },
       ])
       .toArray(),
-    col('token_usage')
-      .aggregate([
-        { $match: { userId: { $in: userIds } } },
-        {
-          $group: {
-            _id: '$userId',
-            totalTokens: { $sum: '$totalTokens' },
-            promptTokens: { $sum: '$promptTokens' },
-            outputTokens: { $sum: '$outputTokens' },
-            thinkingTokens: { $sum: '$thinkingTokens' },
-            requestCount: { $sum: 1 },
-          },
-        },
-      ])
-      .toArray(),
+    aggregateTokenUsageByField({ userId: { $in: userIds } }, 'userId'),
   ])
 
   const convMap = Object.fromEntries(convCounts.map((r) => [String(r._id), r.count]))
-  const tokenMap = Object.fromEntries(tokenByUser.map((r) => [String(r._id), r]))
 
   return users.map((user) => {
     const id = String(user._id)
     const stored = user.tokenUsage || {}
-    const aggregated = tokenMap[id] || {}
+    const aggregated = tokenByUserMap.get(id) || {}
     return {
       _id: user._id,
       name: user.name,
@@ -149,14 +222,16 @@ async function listUsersWithStats() {
       language: user.language,
       createdAt: user.createdAt,
       conversationCount: convMap[id] || 0,
-      tokenUsage: {
+      tokenUsage: attachCostToTokenUsage({
         totalTokens: aggregated.totalTokens ?? stored.totalTokens ?? 0,
         promptTokens: aggregated.promptTokens ?? stored.promptTokens ?? 0,
         outputTokens: aggregated.outputTokens ?? stored.outputTokens ?? 0,
         thinkingTokens: aggregated.thinkingTokens ?? stored.thinkingTokens ?? 0,
         requestCount: aggregated.requestCount ?? stored.requestCount ?? 0,
+        costUsd: aggregated.costUsd ?? 0,
+        costInr: aggregated.costInr ?? 0,
         lastUsedAt: stored.lastUsedAt || null,
-      },
+      }),
     }
   })
 }
@@ -181,26 +256,26 @@ async function getUserConversations(userId) {
     .toArray()
 }
 
+async function getConversationTokenUsage(userId) {
+  const oid = new ObjectId(String(userId))
+  const byConversation = await aggregateTokenUsageByField(
+    { userId: oid, conversationId: { $ne: null } },
+    'conversationId',
+  )
+
+  return Object.fromEntries(
+    [...byConversation.entries()].map(([conversationId, usage]) => [
+      conversationId,
+      attachCostToTokenUsage(usage),
+    ]),
+  )
+}
+
 async function getUserTokenBreakdown(userId) {
-  const [byTask, recent] = await Promise.all([
+  const oid = new ObjectId(String(userId))
+  const [recent, byTaskRows] = await Promise.all([
     col('token_usage')
-      .aggregate([
-        { $match: { userId: new ObjectId(String(userId)) } },
-        {
-          $group: {
-            _id: '$task',
-            totalTokens: { $sum: '$totalTokens' },
-            promptTokens: { $sum: '$promptTokens' },
-            outputTokens: { $sum: '$outputTokens' },
-            thinkingTokens: { $sum: '$thinkingTokens' },
-            requestCount: { $sum: 1 },
-          },
-        },
-        { $sort: { totalTokens: -1 } },
-      ])
-      .toArray(),
-    col('token_usage')
-      .find({ userId: new ObjectId(String(userId)) })
+      .find({ userId: oid })
       .sort({ createdAt: -1 })
       .limit(50)
       .project({
@@ -210,22 +285,69 @@ async function getUserTokenBreakdown(userId) {
         promptTokens: 1,
         outputTokens: 1,
         thinkingTokens: 1,
+        costInr: 1,
+        costUsd: 1,
         source: 1,
         createdAt: 1,
       })
       .toArray(),
+    col('token_usage')
+      .aggregate([
+        { $match: { userId: oid } },
+        {
+          $group: {
+            _id: { task: '$task', model: '$model' },
+            promptTokens: { $sum: '$promptTokens' },
+            outputTokens: { $sum: '$outputTokens' },
+            thinkingTokens: { $sum: '$thinkingTokens' },
+            totalTokens: { $sum: '$totalTokens' },
+            requestCount: { $sum: 1 },
+          },
+        },
+      ])
+      .toArray(),
   ])
 
-  return {
-    byTask: byTask.map((row) => ({
-      task: row._id,
-      totalTokens: row.totalTokens,
+  const taskMap = new Map()
+  for (const row of byTaskRows) {
+    const task = row._id.task
+    const cost = computeUsageCost({
+      model: row._id.model,
       promptTokens: row.promptTokens,
       outputTokens: row.outputTokens,
       thinkingTokens: row.thinkingTokens,
-      requestCount: row.requestCount,
+    })
+    const current = taskMap.get(task) || {
+      task,
+      totalTokens: 0,
+      promptTokens: 0,
+      outputTokens: 0,
+      thinkingTokens: 0,
+      requestCount: 0,
+      costUsd: 0,
+      costInr: 0,
+    }
+    current.totalTokens += row.totalTokens
+    current.promptTokens += row.promptTokens
+    current.outputTokens += row.outputTokens
+    current.thinkingTokens += row.thinkingTokens
+    current.requestCount += row.requestCount
+    current.costUsd += cost.costUsd
+    current.costInr += cost.costInr
+    taskMap.set(task, current)
+  }
+
+  return {
+    byTask: [...taskMap.values()]
+      .map((row) => attachCostToTokenUsage(row))
+      .sort((a, b) => b.totalTokens - a.totalTokens),
+    recent: recent.map((row) => ({
+      ...row,
+      cost: formatCostSummary(
+        row.costInr ?? computeUsageCost(row).costInr,
+        row.costUsd ?? computeUsageCost(row).costUsd,
+      ),
     })),
-    recent,
   }
 }
 
@@ -236,4 +358,5 @@ module.exports = {
   listUsersWithStats,
   getUserConversations,
   getUserTokenBreakdown,
+  getConversationTokenUsage,
 }
