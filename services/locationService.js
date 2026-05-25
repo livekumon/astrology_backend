@@ -161,6 +161,34 @@ function getTimezoneLabel(timezoneId, localBirth) {
   }
 }
 
+async function reverseGeocodeCoordinates(latitude, longitude) {
+  const url = `https://nominatim.openstreetmap.org/reverse?lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}&format=json&addressdetails=1`
+
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': USER_AGENT,
+      Accept: 'application/json',
+    },
+  })
+
+  if (!response.ok) {
+    return null
+  }
+
+  const hit = await response.json()
+  const address = hit.address || {}
+
+  return {
+    label: hit.display_name || null,
+    country: address.country || null,
+    countryCode: address.country_code ? String(address.country_code).toUpperCase() : null,
+    region: address.state || address.region || address.state_district || null,
+    city: address.city || address.town || address.village || address.county || null,
+    geocodedAt: new Date(),
+  }
+}
+
 module.exports = {
   resolveBirthLocation,
+  reverseGeocodeCoordinates,
 }

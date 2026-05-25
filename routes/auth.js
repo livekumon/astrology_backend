@@ -4,12 +4,12 @@ const { col, ObjectId } = require('../db/connection')
 const { signToken, requireAuth } = require('../middleware/auth')
 const { sanitizeLanguage } = require('../constants/languages')
 const { authenticateWithGoogle, formatUser } = require('../services/googleAuthService')
-const { buildDeviceProfileUpdate } = require('../services/deviceProfileService')
+const { buildDeviceProfileUpdate, buildDeviceProfileUpdateAsync } = require('../services/deviceProfileService')
 
 const router = express.Router()
 
 async function applyDeviceProfileUpdate(userId, body) {
-  const $set = buildDeviceProfileUpdate(body)
+  const $set = await buildDeviceProfileUpdateAsync(body)
   if (!$set.deviceProfile && !$set.location) return
 
   await col('users').updateOne({ _id: new ObjectId(String(userId)) }, { $set })
@@ -36,7 +36,7 @@ router.post('/register', async (req, res) => {
 
   const hashed = await bcrypt.hash(password, 10)
   const userLanguage = sanitizeLanguage(language)
-  const deviceFields = buildDeviceProfileUpdate(req.body)
+  const deviceFields = await buildDeviceProfileUpdateAsync(req.body)
   const result = await col('users').insertOne({
     name: name.trim(),
     email: normalizedEmail,
@@ -116,13 +116,13 @@ router.get('/me', requireAuth, (req, res) => {
 // PATCH /api/auth/me — update profile fields (language)
 router.patch('/me', requireAuth, async (req, res) => {
   const { language } = req.body
-  const $set = buildDeviceProfileUpdate(req.body)
+  const $set = await buildDeviceProfileUpdateAsync(req.body)
 
   if (language !== undefined) {
     $set.language = sanitizeLanguage(language)
   }
 
-  if (Object.keys($set).length === 0) {
+  if (!$set.deviceProfile && !$set.location && language === undefined) {
     return res.status(400).json({ message: 'No supported profile fields were provided' })
   }
 

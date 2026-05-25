@@ -2,7 +2,7 @@ const { OAuth2Client } = require('google-auth-library')
 const { col, ObjectId } = require('../db/connection')
 const { signToken } = require('../middleware/auth')
 const { sanitizeLanguage, DEFAULT_LANGUAGE } = require('../constants/languages')
-const { buildDeviceProfileUpdate } = require('./deviceProfileService')
+const { buildDeviceProfileUpdateAsync } = require('./deviceProfileService')
 
 function getGoogleClientId() {
   return process.env.GOOGLE_OAUTH_CLIENT_ID?.trim() || ''
@@ -51,7 +51,7 @@ async function authenticateWithGoogle(credential, language, profileBody = {}) {
   const name = (payload.name || email.split('@')[0] || 'User').trim()
   const avatarUrl = payload.picture || null
   const userLanguage = sanitizeLanguage(language)
-  const deviceFields = buildDeviceProfileUpdate(profileBody)
+  const deviceFields = await buildDeviceProfileUpdateAsync(profileBody)
 
   let user = await col('users').findOne({
     $or: [{ googleId }, { email }],

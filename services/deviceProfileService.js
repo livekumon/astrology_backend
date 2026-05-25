@@ -1,3 +1,5 @@
+const { reverseGeocodeCoordinates } = require('./locationService')
+
 const VALID_DEVICE_TYPES = new Set(['desktop', 'mobile', 'tablet', 'unknown'])
 
 function sanitizeString(value, maxLength) {
@@ -23,6 +25,18 @@ function sanitizeLocation(location) {
     longitude,
     accuracy: Number.isFinite(accuracy) ? accuracy : null,
     updatedAt: now,
+  }
+}
+
+async function enrichLocation(location) {
+  if (!location) return null
+
+  try {
+    const geo = await reverseGeocodeCoordinates(location.latitude, location.longitude)
+    if (!geo) return location
+    return { ...location, ...geo }
+  } catch {
+    return location
   }
 }
 
@@ -58,6 +72,18 @@ function buildDeviceProfileUpdate(body = {}) {
   return $set
 }
 
+async function buildDeviceProfileUpdateAsync(body = {}) {
+  const parsed = parseDeviceProfileFromBody(body)
+  const $set = { updatedAt: new Date() }
+
+  if (parsed.deviceProfile) $set.deviceProfile = parsed.deviceProfile
+  if (parsed.location) {
+    $set.location = await enrichLocation(parsed.location)
+  }
+
+  return $set
+}
+
 function formatDeviceProfileForAdmin(user) {
   if (!user) return null
 
@@ -71,6 +97,11 @@ function formatDeviceProfileForAdmin(user) {
           latitude: user.location.latitude,
           longitude: user.location.longitude,
           accuracy: user.location.accuracy ?? null,
+          country: user.location.country || null,
+          countryCode: user.location.countryCode || null,
+          region: user.location.region || null,
+          city: user.location.city || null,
+          label: user.location.label || null,
           updatedAt: user.location.updatedAt || null,
         }
       : null,
@@ -80,5 +111,6 @@ function formatDeviceProfileForAdmin(user) {
 module.exports = {
   parseDeviceProfileFromBody,
   buildDeviceProfileUpdate,
+  buildDeviceProfileUpdateAsync,
   formatDeviceProfileForAdmin,
 }

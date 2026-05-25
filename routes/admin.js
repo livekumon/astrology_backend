@@ -12,6 +12,7 @@ const {
   getUserTokenBreakdown,
   getConversationTokenUsage,
 } = require('../services/tokenUsageService')
+const { getGeoStats } = require('../services/geoStatsService')
 
 const router = express.Router()
 
@@ -38,6 +39,11 @@ router.get('/stats', requireAdmin, async (_req, res) => {
 router.get('/users', requireAdmin, async (_req, res) => {
   const users = await listUsersWithStats()
   res.json({ users, count: users.length })
+})
+
+router.get('/geo-stats', requireAdmin, async (_req, res) => {
+  const geoStats = await getGeoStats()
+  res.json(geoStats)
 })
 
 router.get('/users/:id', requireAdmin, async (req, res) => {
