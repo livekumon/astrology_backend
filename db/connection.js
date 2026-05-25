@@ -29,6 +29,7 @@ async function connectDB() {
 async function ensureIndexes(database) {
   const users = database.collection('users')
   await users.createIndex({ email: 1 }, { unique: true })
+  await users.createIndex({ googleId: 1 }, { unique: true, sparse: true })
 
   const convs = database.collection('conversations')
   await convs.createIndex({ userId: 1, updatedAt: -1 })

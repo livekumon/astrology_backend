@@ -2,19 +2,10 @@ const express = require('express')
 const bcrypt = require('bcryptjs')
 const { col, ObjectId } = require('../db/connection')
 const { signToken, requireAuth } = require('../middleware/auth')
-const { sanitizeLanguage, DEFAULT_LANGUAGE } = require('../constants/languages')
+const { sanitizeLanguage } = require('../constants/languages')
+const { authenticateWithGoogle, formatUser } = require('../services/googleAuthService')
 
 const router = express.Router()
-
-function formatUser(user) {
-  if (!user) return null
-  return {
-    _id: user._id,
-    name: user.name,
-    email: user.email,
-    language: sanitizeLanguage(user.language),
-  }
-}
 
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
@@ -26,8 +17,12 @@ router.post('/register', async (req, res) => {
     return res.status(400).json({ message: 'Password must be at least 6 characters' })
   }
 
-  const existing = await col('users').findOne({ email: email.toLowerCase().trim() })
+  const normalizedEmail = email.toLowerCase().trim()
+  const existing = await col('users').findOne({ email: normalizedEmail })
   if (existing) {
+    if (existing.googleId && !existing.password) {
+      return res.status(409).json({ message: 'This email is registered with Google. Please sign in with Google.' })
+    }
     return res.status(409).json({ message: 'An account with this email already exists' })
   }
 
@@ -35,10 +30,12 @@ router.post('/register', async (req, res) => {
   const userLanguage = sanitizeLanguage(language)
   const result = await col('users').insertOne({
     name: name.trim(),
-    email: email.toLowerCase().trim(),
+    email: normalizedEmail,
     password: hashed,
+    authProvider: 'password',
     language: userLanguage,
     createdAt: new Date(),
+    updatedAt: new Date(),
   })
 
   const token = signToken(result.insertedId)
@@ -47,8 +44,9 @@ router.post('/register', async (req, res) => {
     user: formatUser({
       _id: result.insertedId,
       name: name.trim(),
-      email: email.toLowerCase().trim(),
+      email: normalizedEmail,
       language: userLanguage,
+      authProvider: 'password',
     }),
   })
 })
@@ -65,6 +63,10 @@ router.post('/login', async (req, res) => {
     return res.status(401).json({ message: 'Invalid email or password' })
   }
 
+  if (!user.password) {
+    return res.status(401).json({ message: 'Please sign in with Google for this account' })
+  }
+
   const match = await bcrypt.compare(password, user.password)
   if (!match) {
     return res.status(401).json({ message: 'Invalid email or password' })
@@ -75,6 +77,24 @@ router.post('/login', async (req, res) => {
     token,
     user: formatUser(user),
   })
+})
+
+// POST /api/auth/google — sign in or register with Google SSO
+router.post('/google', async (req, res) => {
+  const { credential, language } = req.body
+  if (!credential) {
+    return res.status(400).json({ message: 'Google credential is required' })
+  }
+
+  try {
+    const result = await authenticateWithGoogle(credential, language)
+    res.json({
+      token: result.token,
+      user: result.user,
+    })
+  } catch (error) {
+    res.status(401).json({ message: error.message || 'Google sign-in failed' })
+  }
 })
 
 // GET /api/auth/me
