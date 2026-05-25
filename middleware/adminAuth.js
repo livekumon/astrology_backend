@@ -1,8 +1,8 @@
 const jwt = require('jsonwebtoken')
 
 const JWT_SECRET = process.env.JWT_SECRET || 'jyotish-dev-secret-change-in-prod'
-const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'admin@jyotish.local').toLowerCase()
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123'
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'admin').toLowerCase()
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '123456'
 
 function signAdminToken() {
   return jwt.sign({ role: 'admin', email: ADMIN_EMAIL }, JWT_SECRET, { expiresIn: '8h' })
