@@ -4,8 +4,16 @@ const { col, ObjectId } = require('../db/connection')
 const { signToken, requireAuth } = require('../middleware/auth')
 const { sanitizeLanguage } = require('../constants/languages')
 const { authenticateWithGoogle, formatUser } = require('../services/googleAuthService')
+const { buildDeviceProfileUpdate } = require('../services/deviceProfileService')
 
 const router = express.Router()
+
+async function applyDeviceProfileUpdate(userId, body) {
+  const $set = buildDeviceProfileUpdate(body)
+  if (!$set.deviceProfile && !$set.location) return
+
+  await col('users').updateOne({ _id: new ObjectId(String(userId)) }, { $set })
+}
 
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
@@ -28,6 +36,7 @@ router.post('/register', async (req, res) => {
 
   const hashed = await bcrypt.hash(password, 10)
   const userLanguage = sanitizeLanguage(language)
+  const deviceFields = buildDeviceProfileUpdate(req.body)
   const result = await col('users').insertOne({
     name: name.trim(),
     email: normalizedEmail,
@@ -35,7 +44,7 @@ router.post('/register', async (req, res) => {
     authProvider: 'password',
     language: userLanguage,
     createdAt: new Date(),
-    updatedAt: new Date(),
+    ...deviceFields,
   })
 
   const token = signToken(result.insertedId)
@@ -73,6 +82,8 @@ router.post('/login', async (req, res) => {
   }
 
   const token = signToken(user._id)
+  await applyDeviceProfileUpdate(user._id, req.body)
+
   res.json({
     token,
     user: formatUser(user),
@@ -87,7 +98,7 @@ router.post('/google', async (req, res) => {
   }
 
   try {
-    const result = await authenticateWithGoogle(credential, language)
+    const result = await authenticateWithGoogle(credential, language, req.body)
     res.json({
       token: result.token,
       user: result.user,
@@ -105,19 +116,32 @@ router.get('/me', requireAuth, (req, res) => {
 // PATCH /api/auth/me — update profile fields (language)
 router.patch('/me', requireAuth, async (req, res) => {
   const { language } = req.body
-  if (language === undefined) {
-    return res.status(400).json({ message: 'language is required' })
+  const $set = buildDeviceProfileUpdate(req.body)
+
+  if (language !== undefined) {
+    $set.language = sanitizeLanguage(language)
   }
 
-  const userLanguage = sanitizeLanguage(language)
+  if (Object.keys($set).length === 0) {
+    return res.status(400).json({ message: 'No supported profile fields were provided' })
+  }
+
   await col('users').updateOne(
     { _id: new ObjectId(req.user._id) },
-    { $set: { language: userLanguage, updatedAt: new Date() } },
+    { $set },
   )
 
+  const updatedUser = { ...req.user, ...$set }
+
   res.json({
-    user: formatUser({ ...req.user, language: userLanguage }),
+    user: formatUser(updatedUser),
   })
+})
+
+// POST /api/auth/device-profile — refresh device type and location for signed-in users
+router.post('/device-profile', requireAuth, async (req, res) => {
+  await applyDeviceProfileUpdate(req.user._id, req.body)
+  res.json({ ok: true })
 })
 
 module.exports = router

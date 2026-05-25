@@ -2,6 +2,7 @@ const { OAuth2Client } = require('google-auth-library')
 const { col, ObjectId } = require('../db/connection')
 const { signToken } = require('../middleware/auth')
 const { sanitizeLanguage, DEFAULT_LANGUAGE } = require('../constants/languages')
+const { buildDeviceProfileUpdate } = require('./deviceProfileService')
 
 function getGoogleClientId() {
   return process.env.GOOGLE_OAUTH_CLIENT_ID?.trim() || ''
@@ -43,20 +44,21 @@ async function verifyGoogleCredential(credential) {
   return payload
 }
 
-async function authenticateWithGoogle(credential, language) {
+async function authenticateWithGoogle(credential, language, profileBody = {}) {
   const payload = await verifyGoogleCredential(credential)
   const email = payload.email.toLowerCase().trim()
   const googleId = payload.sub
   const name = (payload.name || email.split('@')[0] || 'User').trim()
   const avatarUrl = payload.picture || null
   const userLanguage = sanitizeLanguage(language)
+  const deviceFields = buildDeviceProfileUpdate(profileBody)
 
   let user = await col('users').findOne({
     $or: [{ googleId }, { email }],
   })
 
   if (user) {
-    const updates = { updatedAt: new Date() }
+    const updates = { ...deviceFields }
     if (!user.googleId) {
       updates.googleId = googleId
       updates.authProvider = 'google'
@@ -68,7 +70,7 @@ async function authenticateWithGoogle(credential, language) {
       updates.name = name
     }
 
-    if (Object.keys(updates).length > 1) {
+    if (Object.keys(updates).length > 0) {
       await col('users').updateOne({ _id: user._id }, { $set: updates })
       user = { ...user, ...updates }
     }
@@ -81,7 +83,7 @@ async function authenticateWithGoogle(credential, language) {
       authProvider: 'google',
       language: userLanguage,
       createdAt: new Date(),
-      updatedAt: new Date(),
+      ...deviceFields,
     })
 
     user = {
@@ -92,6 +94,7 @@ async function authenticateWithGoogle(credential, language) {
       avatarUrl,
       authProvider: 'google',
       language: userLanguage,
+      ...deviceFields,
     }
   }
 

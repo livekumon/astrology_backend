@@ -1,5 +1,6 @@
 const { col, ObjectId } = require('../db/connection')
 const { computeUsageCost, sumUsageCosts, formatCostSummary } = require('./tokenPricingService')
+const { formatDeviceProfileForAdmin } = require('./deviceProfileService')
 
 function normalizeUsage(raw) {
   if (!raw) return null
@@ -222,6 +223,7 @@ async function listUsersWithStats() {
       language: user.language,
       createdAt: user.createdAt,
       conversationCount: convMap[id] || 0,
+      ...formatDeviceProfileForAdmin(user),
       tokenUsage: attachCostToTokenUsage({
         totalTokens: aggregated.totalTokens ?? stored.totalTokens ?? 0,
         promptTokens: aggregated.promptTokens ?? stored.promptTokens ?? 0,
