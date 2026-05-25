@@ -35,6 +35,15 @@ const TASK_PROFILES = {
     maxOutputTokens: parsePositiveInt(process.env.GEMINI_SUMMARY_MAX_OUTPUT, 512),
     thinkingBudget: parseThinkingBudget(process.env.GEMINI_SUMMARY_THINKING_BUDGET, 0),
   },
+  chart: {
+    primary: process.env.GEMINI_MODEL_CHART || 'gemini-2.5-pro',
+    fallbacks: parseModelList(
+      process.env.GEMINI_MODEL_CHART_FALLBACKS,
+      ['gemini-2.5-flash'],
+    ),
+    maxOutputTokens: parsePositiveInt(process.env.GEMINI_MODEL_CHART_MAX_OUTPUT, 8192),
+    thinkingBudget: parseThinkingBudget(process.env.GEMINI_MODEL_CHART_THINKING_BUDGET, -1),
+  },
 }
 
 class GeminiError extends Error {

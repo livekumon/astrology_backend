@@ -152,6 +152,35 @@ function formatChartContext(chartContext = {}) {
     'Rasi/Natal (D1), Navamsa (D9 — marriage/soul), Dasamsa (D10 — career), transits, and dasha timeline are part of this reading.',
   )
 
+  if (chartContext.navamsa) {
+    sections.push('')
+    sections.push('=== Navamsa (D9) ===')
+    sections.push(`Lagna: ${chartContext.navamsa.ascSign}`)
+    sections.push(`Sun: ${chartContext.navamsa.sunSign}, Moon: ${chartContext.navamsa.moonSign}`)
+  }
+
+  if (chartContext.dasamsa) {
+    sections.push('')
+    sections.push('=== Dasamsa (D10) ===')
+    sections.push(`Lagna: ${chartContext.dasamsa.ascSign}`)
+    sections.push(`Sun: ${chartContext.dasamsa.sunSign}, Moon: ${chartContext.dasamsa.moonSign}`)
+  }
+
+  if (chartContext.transit?.summary) {
+    sections.push('')
+    sections.push('=== Current Transits ===')
+    sections.push(`As of ${chartContext.transit.referenceDate || 'today'}: ${chartContext.transit.summary}`)
+  }
+
+  if (chartContext.chartCalculation?.source === 'gemini') {
+    sections.push('')
+    sections.push('=== Chart computation ===')
+    sections.push('Placements and timing cycles were computed by Gemini from birth data and location.')
+    if (chartContext.chartCalculation.model) {
+      sections.push(`Model: ${chartContext.chartCalculation.model}`)
+    }
+  }
+
   if (chartContext.welcomeMessage) {
     sections.push('')
     sections.push('=== Initial Chart Reading Given To User ===')
